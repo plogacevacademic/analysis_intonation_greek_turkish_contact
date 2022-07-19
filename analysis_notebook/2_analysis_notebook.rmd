@@ -12,29 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
 library(knitr)
 
-# library(tidyverse) # data manipulation
-# options(dplyr.summarise.inform = FALSE)
-# 
-# library(magrittr) # pipes (%>% / %<>%)
-# library(readr) # for read_csv(), read_delim()
-# 
-# library(cmdstanr) # R interface to Stan (mc-stan.org, for statistical modeling) [an alternative is 'rstan']
-# library(brms) # lme4-like interface to Stan
-# options(brms.backend = "cmdstanr")
-# 
-# library(ggplot2) # plotting
-# library(plotly) # sharper plots in html
-# theme_set(theme_bw() + theme(legend.position="top"))
-# 
-# library(posterior) # for dealing MCMC samples
-# 
-# # to-do: check later whether these are used
-# library(bayesplot)
-# library(tidybayes)
-# library(brmstools)
-# library(broom)
-
-opts_chunk$set(cache=F) # , fig.retina = 1
+opts_chunk$set(cache=F)
 ```
 
 
@@ -130,16 +108,21 @@ df_amg %<>% left_join(dialect_id)
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
 
-  p <- df_amg %>% ggplot(aes(tau)) + geom_histogram(aes( y = ..density.., fill = dialect)) +
-    scale_fill_manual(values = c(color_AMG, color_greece, color_turkey)) +
-    geom_vline(aes(xintercept = median_Turkish), color = color_turkey, linetype = "dashed") +
-    geom_vline(aes(xintercept = median_Athenian), color = color_greece, linetype = "dashed") +
-    facet_grid(dialect ~ generation, scales = "free_y") +
-    scale_y_continuous("percentage of observations", labels=scales::percent) +
-    scale_x_continuous("L tone alignment (𝝉)") + 
-    theme(strip.background =element_rect(fill="white")) 
 
-p
+plot_histogram <- function(parameter) {
+     df_amg %>% ggplot(aes_string( parameter )) + 
+                geom_histogram(aes( y = ..density.., fill = dialect)) +
+                scale_fill_manual(values = c(color_AMG, color_greece, color_turkey)) +
+                #geom_vline(aes(xintercept = median_Turkish), color = color_turkey, linetype = "dashed") +
+                #geom_vline(aes(xintercept = median_Athenian), color = color_greece, linetype = "dashed") +
+                facet_grid(dialect ~ generation, scales = "free_y") +
+                scale_y_continuous("percentage of observations", labels=scales::percent) +
+                # scale_x_continuous("L tone alignment (𝝉)") + 
+                theme(strip.background =element_rect(fill="white")) 
+}
+
+lapply(c("tau", "c1", "c2", "c3", "c4"), function(par) plot_histogram(par))
+
 
 ```
 
@@ -309,8 +292,6 @@ compute_loo <- function(fit) {
   fit
 }
 
-
-
 eq_dim <- function(a, b) {
   ( length(dim(a)) == length(dim(b)) ) & ( dim(a) == dim(b) ) 
 }
@@ -380,7 +361,7 @@ prior_lambda = 'normal(0,2)'
 prior_delta_lambda = 'normal(0,2)'
 
 priors_mix <- c(
-    set_prior(             class = 'Intercept', prior = prior_mu),
+    set_prior(              class = 'Intercept', prior = prior_mu),
     set_prior(dpar = 'mu2', class = 'Intercept', prior = prior_mu),
     
     set_prior(dpar  = 'sigma1', class = 'Intercept', prior = prior_sigma),
@@ -450,7 +431,6 @@ for (cur_dv in dvs)
                       file = cur_fname_baseline)
   
   fit_baseline %<>% compute_loo()
-  
 } 
 
 ```
@@ -464,11 +444,8 @@ for (cur_dv in dvs)
 
 dvs = c("c1", "c2", "c3", "c4", "tau")
 
-for (cur_dv in dvs)
+plyr::ldply(dvs, function(cur_dv)
 {
-  
-  cur_dv = "c3"
-  
   cur_fname_mix <- sprintf("../workspace/fit_mixture_%s.rds", cur_dv)
   cur_fname_baseline <- sprintf("../workspace/fit_baseline_%s.rds", cur_dv)
   
@@ -481,132 +458,75 @@ for (cur_dv in dvs)
   elpds <- cbind(baseline = sprintf("%0.1f (SE=%0.1f)", loo_baseline["Estimate"], loo_baseline["SE"]),
                  mix = sprintf("%0.1f (SE=%0.1f)", loo_mix["Estimate"], loo_mix["SE"])
                 )
-  print(elpds)
-                 
-  loo_compare(fit_mix, fit_baseline)
+
+  loo_delta <- loo_compare(fit_mix, fit_baseline) %>% 
+               data.frame(model = rownames(.) %>% paste0("delta_", .), .) %>%
+               mutate( delta_elpd = sprintf("%0.1f (SE=%0.1f)", elpd_diff, se_diff) ) %>%
+               select( model, delta_elpd ) %>%
+               tidyr::pivot_wider(names_from = "model", values_from = "delta_elpd")
   
-}
-
-
-```
-
-
-```{r warning=FALSE, message=FALSE, size="small"}
-prior_summary(fit_mix)
-```
-
-
-
-# Mixture Model | Model Code
-
-```{r warning=FALSE, message=FALSE, size="small"}
-fit_mix
-```
-
-
-# Mixture Model | Model Code
-
-```{r warning=FALSE, message=FALSE, fig.height=3}
- library(tidybayes)
-
- fit_mix %>%
-      gather_draws(b_Intercept, b_mu2_Intercept) %>%
-      ggplot(aes(.value, .variable)) + 
-      stat_pointinterval(.width = c(0.66, 0.95)) +
-      geom_vline(xintercept = 0, color="red",
-             linetype = "dotted")
-
-```
-
-
-
-
-# Mixture Model | Model Code
-
-```{r warning=FALSE, message=FALSE, fig.height=3}
- fit_mix %>%
-      gather_draws(b_sigma1_Intercept, b_sigma2_Intercept) %>%
-      ggplot(aes(.value, .variable)) + 
-      stat_pointinterval(.width = c(0.66, 0.95))
-```
-
-
-
-# Mixture Model | Model Code
-
-```{r warning=FALSE, message=FALSE, fig.height=3}
- fit_mix %>%
-      gather_draws(b_lambda_Intercept, b_lambda_cGen_2m1, b_lambda_cGen_3m2, b_lambda_cGen_4m3) %>%
-      ggplot(aes(.value, .variable)) + 
-      stat_pointinterval(.width = c(0.66, 0.95))
-
-```
-
-
-
-# Mixture Model | Model Code
-
-```{r warning=FALSE, message=FALSE}
-
-calculate_lambda_by_generation <- function(fit_mix)
-{
-  samples_mix <- as_draws_df( fit_mix )
-  
-  lambda_by_generation <- 
-    sapply(1:nrow(df_contr_generation), function(i_row) {
-      
-      cur_samples <- with(samples_mix, with(df_contr_generation[i_row,], { 
-        b_lambda_Intercept + cGen_2m1*b_lambda_cGen_2m1 + cGen_3m2*b_lambda_cGen_3m2 + cGen_4m3*b_lambda_cGen_4m3 
-      }))
-      
-      credible_interval <- coda::HPDinterval(as.mcmc(cur_samples), prob = .95) %>% c(coda::HPDinterval(as.mcmc(cur_samples), prob = .5)) %>% c(median(cur_samples))
-      names(credible_interval) <- c("lower90", "upper90", "lower50", "upper50", "median")
-      
-      plogis( credible_interval )
-  
-    })
-  lambda_by_generation %<>% t() %>% as.data.frame()
-  lambda_by_generation %<>% cbind( df_contr_generation, . )
-  lambda_by_generation$generation %<>% factor(., levels = rev(.))
-  
-  lambda_by_generation
-}
-  
-```
-
-
-
-```{r warning=FALSE, message=FALSE}
-
-fit_mix_fnames <- sprintf("../workspace/fit_mixture_%s.rds", dvs)
-df_fit_mix_fnames <- data.frame(dv = dvs, fname = fit_mix_fnames, stringsAsFactors = F) 
-
-lambdas <-
-df_fit_mix_fnames %>% plyr::ddply("dv", function(df) {
-    #print(df$fname)
-    fit_mix <- readRDS(df$fname)
-    calculate_lambda_by_generation(fit_mix)
+  cbind(elpds, loo_delta)
 })
 
 
+```
 
-  
+
+# Calculate Lambda by Generation
+
+```{r warning=FALSE, message=FALSE}
+
+library(tidyr)
+library(ggdist)
+
+df_lambdas <-
+  df_fit_mix_fnames %>% plyr::ddply("dv", function(df) {
+    fit_mix <- readRDS(df$fname)
+    as_draws_df( fit_mix )
+  })
+
+df_lambdas %<>% select( dv, 
+                        lambda_icpt=b_lambda_Intercept, lambda_g2m1=b_lambda_cGen_2m1, 
+                        lambda_g3m2=b_lambda_cGen_3m2, lambda_g4m3=b_lambda_cGen_4m3, 
+                        .chain, .iteration, .draw )
+
+{
+attach(df_contr_generation)
+df_lambdas %<>% mutate(
+  `generation 1` = lambda_icpt + lambda_g2m1*cGen_2m1[1] + lambda_g3m2*cGen_3m2[1] + lambda_g4m3*cGen_4m3[1],
+  `generation 2` = lambda_icpt + lambda_g2m1*cGen_2m1[2] + lambda_g3m2*cGen_3m2[2] + lambda_g4m3*cGen_4m3[2],
+  `generation 3` = lambda_icpt + lambda_g2m1*cGen_2m1[3] + lambda_g3m2*cGen_3m2[3] + lambda_g4m3*cGen_4m3[3],
+  `generation 4` = lambda_icpt + lambda_g2m1*cGen_2m1[4] + lambda_g3m2*cGen_3m2[4] + lambda_g4m3*cGen_4m3[4]
+)
+detach(df_contr_generation)
+}
+
+df_lambdas %<>% select( dv, `generation 1`, `generation 2`, `generation 3`, `generation 4`, .chain, .iteration, .draw )
+df_lambdas_long <- df_lambdas %>% tidyr::pivot_longer(`generation 1`:`generation 4`, names_to = "generation", values_to = "value")
+df_lambdas_long$generation %<>% factor(levels = paste("generation", 4:1))
+df_lambdas_long$dv %<>% recode("c1"="c₁", "c2"="c₂","c3"="c₃","c4"="c₄","tau"="L tone alignment (𝜏)" ) 
+
 ```
 
 
 
-# Mixture Model | Model Code
+# Plot Lambda by Generation
 
 ```{r warning=FALSE, message=FALSE, fig.height=3}
 
-p <- lambdas %>%
-  ggplot(aes(median, generation)) + 
-  geom_errorbarh(aes(xmin = lower90, xmax = upper90), height = 0, color = "grey30") + 
-  geom_errorbarh(aes(xmin = lower50, xmax = upper50), height = 0, size = 2, color = "grey30") + 
-  geom_point(size = 2) +
-  theme_bw() + ylab(NULL) + xlab("Estimate") + facet_wrap(~dv, nrow = 1)
+p <- df_lambdas_long %>%
+  ggplot(aes( plogis(value), generation)) + 
+  #ggdist::stat_slabinterval(.width = c(0.5, 0.9)) + 
+  ggdist::stat_pointinterval(.width = c(0.6, 0.9)) + 
+  facet_wrap(~dv, nrow = 1) + 
+  theme(text=element_text(family="serif")) + 
+  theme(strip.background = element_rect(colour="black", fill="transparent")) + 
+  xlab("Proportion of Athenian-like utterances (λ)") + 
+  ylab(NULL) + xlab(NULL) + scale_x_continuous(labels = scales::percent_format())
+
 print(p)
 
-ggsave(p, file = "../analysis_output/lambda_by_generation.jpeg", width = 10, height = 3)
+ggsave(p, file = "../analysis_output/lambda_by_generation.jpeg", width = 9, height = 2.75, dpi = 600)
+
 
 ```
