@@ -479,6 +479,12 @@ plyr::ldply(dvs, function(cur_dv)
 library(tidyr)
 library(ggdist)
 
+df_fit_mix_fnames <-
+data.frame(
+  dv = c(dvs), #, dvs
+  fname = sprintf("../workspace/fit_mixture_%s.rds", dvs)
+)
+
 df_lambdas <-
   df_fit_mix_fnames %>% plyr::ddply("dv", function(df) {
     fit_mix <- readRDS(df$fname)
